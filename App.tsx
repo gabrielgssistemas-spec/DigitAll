@@ -12,6 +12,7 @@ import { RelatorioProducao } from './views/RelatorioProducao';
 import { Management } from './views/Management';
 import { Login } from './views/Login';
 import { EspelhoBiometria } from './views/EspelhoBiometria'; 
+import { AutorizacaoPonto } from './views/AutorizacaoPonto';
 import { HospitalPermissions } from './types';
 
 export default function App() {
@@ -87,6 +88,7 @@ export default function App() {
       case 'ponto': return <PontoMachine />;
       case 'relatorio': return <RelatorioProducao />;
       case 'espelho': return <EspelhoBiometria />; 
+      case 'autorizacao': return <AutorizacaoPonto />;
       case 'cadastro': return <CooperadoRegister />;
       case 'hospitais': return <HospitalRegister />;
       case 'biometria': return <BiometriaManager />;

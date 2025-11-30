@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { StorageService } from '../services/storage';
 import { RegistroPonto, Hospital, TipoPonto } from '../types';
-import { Calendar, Building2, Filter, FileClock, Clock } from 'lucide-react';
+import { Calendar, Building2, Filter, FileClock, Clock, AlertTriangle, X, CheckCircle, AlertCircle } from 'lucide-react';
 
 // Interface auxiliar para exibição (Mesma do Relatório)
 interface ShiftRow {
@@ -22,11 +22,19 @@ export const EspelhoBiometria: React.FC = () => {
   // User Session
   const session = StorageService.getSession();
   const cooperadoId = session?.type === 'COOPERADO' ? session.user.id : null;
+  const cooperadoData = session?.type === 'COOPERADO' ? session.user : null;
 
   // Filters
   const [filterHospital, setFilterHospital] = useState('');
   const [dateStart, setDateStart] = useState('');
   const [dateEnd, setDateEnd] = useState('');
+
+  // Modal Justificativa
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [justificationTarget, setJustificationTarget] = useState<{entryId: string, type: 'SAIDA' | 'ENTRADA'} | null>(null);
+  const [justificationTime, setJustificationTime] = useState('');
+  const [justificationReason, setJustificationReason] = useState('Esquecimento');
+  const [justificationDesc, setJustificationDesc] = useState('');
 
   useEffect(() => {
     // Set default date range (Current Month)
@@ -43,7 +51,7 @@ export const EspelhoBiometria: React.FC = () => {
     if (!cooperadoId) return;
 
     // 1. Get all points for this Cooperado
-    const allPontos = StorageService.getPontos().filter(p => p.cooperadoId === cooperadoId);
+    const allPontos = StorageService.getPontos().filter(p => p.cooperadoId === cooperadoId && p.status !== 'Rejeitado');
     
     // Sort descending (newest first) for initial state, though pairing logic handles sorting
     const sorted = allPontos.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
@@ -82,7 +90,7 @@ export const EspelhoBiometria: React.FC = () => {
     // 1. Process Entries
     filtered.forEach(log => {
       if (log.tipo === TipoPonto.ENTRADA) {
-        // Try to find matching exit in the filtered logs
+        // Try to find matching exit (can be Closed or Pending)
         const matchingExit = filtered.find(l => l.tipo === TipoPonto.SAIDA && l.relatedId === log.id);
         
         if (matchingExit) {
@@ -93,6 +101,12 @@ export const EspelhoBiometria: React.FC = () => {
         const parts = log.local.split(' - ');
         const setorNome = parts.length > 1 ? parts[1] : parts[0];
 
+        let statusDisplay = 'Em Aberto';
+        if (matchingExit) {
+            if (matchingExit.status === 'Pendente') statusDisplay = 'Aguardando Autorização';
+            else if (matchingExit.status === 'Fechado') statusDisplay = 'Fechado';
+        }
+
         shifts.push({
           id: log.id,
           local: log.local,
@@ -100,7 +114,7 @@ export const EspelhoBiometria: React.FC = () => {
           data: new Date(log.timestamp).toLocaleDateString('pt-BR'),
           entry: log,
           exit: matchingExit,
-          status: matchingExit ? 'Fechado' : 'Em Aberto'
+          status: statusDisplay
         });
       }
     });
@@ -112,6 +126,9 @@ export const EspelhoBiometria: React.FC = () => {
         const parts = log.local.split(' - ');
         const setorNome = parts.length > 1 ? parts[1] : parts[0];
 
+        let statusDisplay = 'Fechado (S/E)';
+        if (log.status === 'Pendente') statusDisplay = 'Aguardando Autorização';
+
         shifts.push({
           id: log.id,
           local: log.local,
@@ -119,7 +136,7 @@ export const EspelhoBiometria: React.FC = () => {
           data: new Date(log.timestamp).toLocaleDateString('pt-BR'),
           entry: undefined,
           exit: log,
-          status: 'Fechado (S/E)'
+          status: statusDisplay
         });
       }
     });
@@ -133,6 +150,52 @@ export const EspelhoBiometria: React.FC = () => {
   };
 
   const shiftRows = getShiftRows();
+
+  const handleOpenJustification = (entryId: string, type: 'SAIDA' | 'ENTRADA') => {
+    setJustificationTarget({ entryId, type });
+    setJustificationTime('');
+    setJustificationReason('Esquecimento');
+    setJustificationDesc('');
+    setIsModalOpen(true);
+  };
+
+  const submitJustification = () => {
+    if (!justificationTarget || !justificationTime) return;
+    if (!cooperadoData) return;
+
+    // Find the original Entry
+    const entry = logs.find(l => l.id === justificationTarget.entryId);
+    if (!entry) return;
+
+    // Construct timestamp based on Entry Date + Justification Time
+    const entryDate = new Date(entry.timestamp).toISOString().split('T')[0];
+    const newTimestamp = new Date(`${entryDate}T${justificationTime}:00`).toISOString();
+
+    const novoPonto: RegistroPonto = {
+        id: crypto.randomUUID(),
+        codigo: entry.codigo, // Same shift code
+        cooperadoId: cooperadoData.id,
+        cooperadoNome: cooperadoData.nome,
+        timestamp: newTimestamp,
+        tipo: justificationTarget.type === 'SAIDA' ? TipoPonto.SAIDA : TipoPonto.ENTRADA, // Currently mostly SAIDA
+        local: entry.local,
+        hospitalId: entry.hospitalId,
+        setorId: entry.setorId,
+        isManual: true,
+        status: 'Pendente',
+        relatedId: entry.id, // Link to the entry
+        justificativa: {
+            motivo: justificationReason,
+            descricao: justificationDesc,
+            dataSolicitacao: new Date().toISOString()
+        }
+    };
+
+    StorageService.savePonto(novoPonto);
+    setIsModalOpen(false);
+    loadData();
+    alert('Justificativa enviada com sucesso! Aguarde a aprovação do gestor.');
+  };
 
   if (!cooperadoId) {
     return (
@@ -163,7 +226,6 @@ export const EspelhoBiometria: React.FC = () => {
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* Dynamic Hospital Dropdown */}
             <div className="space-y-1">
                 <label className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1">
                     <Building2 className="h-3 w-3" /> Hospital de Atuação
@@ -183,7 +245,6 @@ export const EspelhoBiometria: React.FC = () => {
                 )}
             </div>
 
-            {/* Date Range - Start */}
             <div className="space-y-1">
                 <label className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1">
                     <Calendar className="h-3 w-3" /> Período Início
@@ -196,7 +257,6 @@ export const EspelhoBiometria: React.FC = () => {
                 />
             </div>
 
-            {/* Date Range - End */}
             <div className="space-y-1">
                 <label className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1">
                     <Calendar className="h-3 w-3" /> Período Fim
@@ -234,7 +294,6 @@ export const EspelhoBiometria: React.FC = () => {
                   <td className="px-6 py-4">
                     <div className="flex flex-col">
                         <span className="font-medium text-gray-800">{row.setorNome}</span>
-                        {/* Optional: Show full hospital name if not filtering by hospital */}
                         {!filterHospital && (
                            <span className="text-[10px] text-gray-500">{row.local.split(' - ')[0]}</span>
                         )}
@@ -242,24 +301,45 @@ export const EspelhoBiometria: React.FC = () => {
                   </td>
                   
                   {/* Coluna Entrada */}
-                  <td className="px-6 py-4 text-center font-mono font-bold text-green-700 bg-green-50/50">
-                    {row.entry ? new Date(row.entry.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '--:--'}
+                  <td className="px-6 py-4 text-center font-mono font-bold bg-green-50/50">
+                    {row.entry ? (
+                        <span className={row.entry.status === 'Pendente' ? 'text-amber-600 flex items-center justify-center gap-1' : 'text-green-700'}>
+                            {row.entry.status === 'Pendente' && <Clock className="h-3 w-3" />}
+                            {new Date(row.entry.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                        </span>
+                    ) : '--:--'}
                   </td>
 
                   {/* Coluna Saída */}
-                  <td className="px-6 py-4 text-center font-mono font-bold text-red-700 bg-red-50/50">
-                    {row.exit ? new Date(row.exit.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '--:--'}
+                  <td className="px-6 py-4 text-center font-mono font-bold bg-red-50/50">
+                    {row.exit ? (
+                        <span className={row.exit.status === 'Pendente' ? 'text-amber-600 flex items-center justify-center gap-1' : 'text-red-700'}>
+                            {row.exit.status === 'Pendente' && <Clock className="h-3 w-3" />}
+                            {new Date(row.exit.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                        </span>
+                    ) : (
+                        row.entry && row.entry.status !== 'Pendente' ? (
+                            <button 
+                                onClick={() => handleOpenJustification(row.id, 'SAIDA')}
+                                className="text-primary-600 hover:text-primary-800 underline text-xs flex items-center justify-center w-full gap-1"
+                                title="Justificar horário em aberto"
+                            >
+                                <AlertTriangle className="h-3 w-3" /> --:--
+                            </button>
+                        ) : '--:--'
+                    )}
                   </td>
 
                   <td className="px-6 py-4 text-center">
                     <span className={`px-3 py-1 rounded-full text-xs font-bold shadow-sm ${
+                        row.status.includes('Aguardando') ? 'bg-amber-100 text-amber-700 border border-amber-200' :
                         row.status.includes('Aberto') ? 'bg-amber-500 text-white' : 'bg-green-600 text-white'
                     }`}>
                         {row.status}
                     </span>
                   </td>
                   <td className="px-6 py-4 text-right text-xs text-gray-400">
-                    {(row.entry?.isManual || row.exit?.isManual) ? 'Manual (Ajuste)' : 'Biometria'}
+                    {(row.entry?.isManual || row.exit?.isManual) ? 'Manual / Ajuste' : 'Biometria'}
                   </td>
                 </tr>
               ))}
@@ -277,6 +357,83 @@ export const EspelhoBiometria: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {/* Modal de Justificativa */}
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md animate-fade-in mx-4">
+                <div className="flex justify-between items-center mb-4 border-b pb-2">
+                    <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                        <AlertCircle className="h-5 w-5 text-amber-500" />
+                        Justificativa de Horário
+                    </h3>
+                    <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-gray-600">
+                        <X className="h-5 w-5" />
+                    </button>
+                </div>
+
+                <div className="space-y-4">
+                    <div className="bg-amber-50 text-amber-800 p-3 rounded-lg text-sm mb-4">
+                        Preencha os dados abaixo. Sua solicitação será enviada para aprovação do gestor.
+                    </div>
+
+                    <div className="space-y-1">
+                        <label className="text-sm font-bold text-gray-700">Horário Realizado</label>
+                        <input 
+                            type="time" 
+                            className="w-full border border-gray-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-primary-500"
+                            value={justificationTime}
+                            onChange={e => setJustificationTime(e.target.value)}
+                        />
+                    </div>
+
+                    <div className="space-y-1">
+                        <label className="text-sm font-bold text-gray-700">Motivo da Falha</label>
+                        <select 
+                            className="w-full border border-gray-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-primary-500 bg-white"
+                            value={justificationReason}
+                            onChange={e => setJustificationReason(e.target.value)}
+                        >
+                            <option value="Esquecimento">Esquecimento</option>
+                            <option value="Computador Inoperante">Computador Inoperante</option>
+                            <option value="Falta de Energia">Falta de Energia</option>
+                            <option value="Outro Motivo">Outro Motivo</option>
+                        </select>
+                    </div>
+
+                    {justificationReason === 'Outro Motivo' && (
+                        <div className="space-y-1">
+                            <label className="text-sm font-bold text-gray-700">Descrição Detalhada</label>
+                            <textarea 
+                                className="w-full border border-gray-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+                                rows={3}
+                                placeholder="Descreva o motivo..."
+                                value={justificationDesc}
+                                onChange={e => setJustificationDesc(e.target.value)}
+                            />
+                        </div>
+                    )}
+
+                    <div className="flex justify-end space-x-2 pt-2">
+                        <button 
+                            onClick={() => setIsModalOpen(false)}
+                            className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+                        >
+                            Cancelar
+                        </button>
+                        <button 
+                            onClick={submitJustification}
+                            disabled={!justificationTime || (justificationReason === 'Outro Motivo' && !justificationDesc)}
+                            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                        >
+                            <CheckCircle className="h-4 w-4" />
+                            Concluir
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+      )}
     </div>
   );
 };

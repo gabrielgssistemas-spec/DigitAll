@@ -28,7 +28,8 @@ export const HospitalRegister: React.FC = () => {
       biometria: true,
       auditoria: false,
       gestao: false,
-      espelho: false // Default to false for hospitals
+      espelho: false,
+      autorizacao: false
     },
     setores: []
   };
@@ -112,6 +113,7 @@ export const HospitalRegister: React.FC = () => {
     { key: 'ponto', label: 'Registrar Produção' },
     { key: 'relatorio', label: 'Relatório Detalhado' },
     { key: 'espelho', label: 'Espelho de Ponto' },
+    { key: 'autorizacao', label: 'Aprovação de Ponto' },
     { key: 'cadastro', label: 'Cooperados' },
     { key: 'hospitais', label: 'Hospitais & Setores' },
     { key: 'biometria', label: 'Biometria' },

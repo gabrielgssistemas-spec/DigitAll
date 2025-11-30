@@ -57,6 +57,7 @@ export interface HospitalPermissions {
   gestao: boolean; // New permission for Manager management
   testes?: boolean; // Permissão opcional para área de testes
   espelho: boolean; // New permission for Cooperado View
+  autorizacao: boolean; // New permission for Justification Approval
 }
 
 export interface Hospital {
@@ -77,6 +78,12 @@ export interface Manager {
   permissoes: HospitalPermissions;
 }
 
+export interface JustificativaData {
+  motivo: string;
+  descricao?: string;
+  dataSolicitacao: string;
+}
+
 export interface RegistroPonto {
   id: string;
   codigo: string; // Legacy numeric code (e.g. 248834)
@@ -90,8 +97,9 @@ export interface RegistroPonto {
   observacao?: string;
   validadoPor?: string; // If manual override
   isManual: boolean;
-  status: 'Aberto' | 'Fechado';
+  status: 'Aberto' | 'Fechado' | 'Pendente' | 'Rejeitado';
   relatedId?: string; // ID of the paired record (Exit points to Entry)
+  justificativa?: JustificativaData;
 }
 
 export interface AuditLog {

@@ -26,7 +26,8 @@ const seedData = () => {
         biometria: true,
         auditoria: true,
         gestao: true,
-        espelho: false // Admins usually look at general reports, but can set true if needed
+        espelho: false, // Admins usually look at general reports, but can set true if needed
+        autorizacao: true // Master has access to authorization
       }
     };
     localStorage.setItem(MANAGERS_KEY, JSON.stringify([masterUser]));
@@ -87,7 +88,8 @@ const seedData = () => {
           biometria: true,
           auditoria: false,
           gestao: false,
-          espelho: false
+          espelho: false,
+          autorizacao: false
         },
         setores: [
           { id: 's1', nome: 'UTI Adulto' },
@@ -118,7 +120,8 @@ const seedData = () => {
           biometria: true,
           auditoria: false,
           gestao: false,
-          espelho: false
+          espelho: false,
+          autorizacao: false
         },
         setores: [
           { id: 's4', nome: 'Clínica Médica' },
@@ -148,7 +151,8 @@ const seedData = () => {
           biometria: true,
           auditoria: false,
           gestao: false,
-          espelho: false
+          espelho: false,
+          autorizacao: false
         },
         setores: [
           { id: 's6', nome: 'Neurologia' },
@@ -222,7 +226,8 @@ export const StorageService = {
                 auditoria: false,
                 gestao: false,
                 testes: false,
-                espelho: true // Only access to Mirror
+                espelho: true, // Only access to Mirror
+                autorizacao: false
             }
         };
     }
@@ -306,7 +311,7 @@ export const StorageService = {
     const list = StorageService.getPontos();
     list.push(ponto);
     localStorage.setItem(PONTOS_KEY, JSON.stringify(list));
-    StorageService.logAudit('REGISTRO_PRODUCAO', `Produção (${ponto.tipo}) registrada para ${ponto.cooperadoNome}.`);
+    StorageService.logAudit('REGISTRO_PRODUCAO', `Produção (${ponto.tipo}) registrada para ${ponto.cooperadoNome}. Status: ${ponto.status}`);
   },
 
   updatePonto: (ponto: RegistroPonto): void => {
@@ -345,7 +350,7 @@ export const StorageService = {
 
   getLastPonto: (cooperadoId: string): RegistroPonto | undefined => {
     const list = StorageService.getPontos();
-    const userPontos = list.filter(p => p.cooperadoId === cooperadoId);
+    const userPontos = list.filter(p => p.cooperadoId === cooperadoId && p.status !== 'Rejeitado' && p.status !== 'Pendente');
     return userPontos.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
   },
 

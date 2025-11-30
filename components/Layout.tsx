@@ -12,7 +12,8 @@ import {
   XCircle,
   FileText,
   Briefcase,
-  FileClock
+  FileClock,
+  CheckSquare
 } from 'lucide-react';
 import { Hospital, HospitalPermissions } from '../types';
 import { StorageService } from '../services/storage';
@@ -44,6 +45,7 @@ export const Layout: React.FC<LayoutProps> = ({
     { id: 'ponto', label: 'Registrar Produção', icon: ClipboardCheck, permissionKey: 'ponto' },
     { id: 'relatorio', label: 'Relatório Detalhado', icon: FileText, permissionKey: 'relatorio' },
     { id: 'espelho', label: 'Espelho da Biometria', icon: FileClock, permissionKey: 'espelho' },
+    { id: 'autorizacao', label: 'Justificativa de Plantão', icon: CheckSquare, permissionKey: 'autorizacao' },
     { id: 'cadastro', label: 'Cooperados', icon: Users, permissionKey: 'cadastro' },
     { id: 'hospitais', label: 'Hospitais & Setores', icon: Building2, permissionKey: 'hospitais' },
     { id: 'biometria', label: 'Biometria', icon: Fingerprint, permissionKey: 'biometria' },

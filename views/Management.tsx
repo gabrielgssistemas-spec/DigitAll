@@ -21,7 +21,8 @@ export const Management: React.FC = () => {
       biometria: true,
       auditoria: true,
       gestao: true,
-      espelho: true // Admins generally have access
+      espelho: true,
+      autorizacao: true
     }
   };
   
@@ -78,6 +79,7 @@ export const Management: React.FC = () => {
     { key: 'ponto', label: 'Registrar Produção' },
     { key: 'relatorio', label: 'Relatório Detalhado' },
     { key: 'espelho', label: 'Espelho de Ponto' },
+    { key: 'autorizacao', label: 'Aprovação de Ponto' },
     { key: 'cadastro', label: 'Cooperados' },
     { key: 'hospitais', label: 'Hospitais & Setores' },
     { key: 'biometria', label: 'Biometria' },
