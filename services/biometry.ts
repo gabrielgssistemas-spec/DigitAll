@@ -1,13 +1,6 @@
 
 import { SampleFormat, SdkEventListener } from '../types';
 
-// Declare global variable for the SDK usually injected by the script
-declare global {
-  interface Window {
-    Fingerprint: any;
-  }
-}
-
 export class DigitalPersonaService {
   private reader: any;
   private isConnected: boolean = false;

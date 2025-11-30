@@ -1,4 +1,4 @@
-/*!
+﻿/*!
  * https://github.com/paulmillr/es6-shim
  * @license es6-shim Copyright 2013-2015 by Paul Miller (http://paulmillr.com)
  *   and contributors,  MIT License
@@ -993,7 +993,7 @@
                 throw new TypeError('Array#findIndex: predicate must be a function');
             }
             var thisArg = arguments.length > 1 ? arguments[1] : null;
-            for (var i = 0, value; i < length; i++) {
+            for (var i = 0; i < length; i++) {
                 if (thisArg) {
                     if (_call(predicate, thisArg, list[i], i, list)) { return i; }
                 } else if (predicate(list[i], i, list)) {
@@ -3237,7 +3237,7 @@
         small: function small() { return ES.CreateHTML(this, 'small', '', ''); },
         strike: function strike() { return ES.CreateHTML(this, 'strike', '', ''); },
         sub: function sub() { return ES.CreateHTML(this, 'sub', '', ''); },
-        sup: function sup() { return ES.CreateHTML(this, 'sup', '', ''); }
+        sup: function sub() { return ES.CreateHTML(this, 'sup', '', ''); }
     };
     _forEach(Object.keys(stringHTMLshims), function (key) {
         var method = String.prototype[key];

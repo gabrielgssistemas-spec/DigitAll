@@ -55,6 +55,7 @@ export interface HospitalPermissions {
   biometria: boolean;
   auditoria: boolean;
   gestao: boolean; // New permission for Manager management
+  testes?: boolean; // Permissão opcional para área de testes
 }
 
 export interface Hospital {
@@ -100,22 +101,54 @@ export interface AuditLog {
   user: string;
 }
 
-// DIGITAL PERSONA SDK TYPES
+// --- DIGITAL PERSONA SDK GLOBAL TYPES ---
+
 export enum SampleFormat {
   Raw = 1,
   Intermediate = 2,
   Compressed = 3,
-  PngImage = 5
+  PngImage = 5,
 }
 
-export interface FingerprintSample {
-  data: string; // Base64
+export enum QualityCode {
+  Good = 0,
+  NoImage = 1,
+  TooLight = 2,
+  TooDark = 3,
+  TooNoisy = 4,
+  LowContrast = 5,
+  NotEnoughFeatures = 6,
+  NotCentered = 7,
+  NotAFinger = 8,
+  TooHigh = 9,
+  TooLow = 10,
+  TooLeft = 11,
+  TooRight = 12,
+  TooStrange = 13,
+  TooFast = 14,
+  TooSkewed = 15,
+  TooShort = 16,
+  TooSlow = 17,
+  ReverseMotion = 18,
+  PressureTooHard = 19,
+  PressureTooLight = 20,
+  WetFinger = 21,
+  FakeFinger = 22,
+  TooSmall = 23,
+  RotatedTooMuch = 24,
 }
 
 export interface SdkEventListener {
-  onDeviceConnected?: (device: any) => void;
-  onDeviceDisconnected?: (device: any) => void;
-  onSamplesAcquired?: (s: { samples: FingerprintSample[] }) => void;
-  onQualityReported?: (e: { quality: number }) => void;
-  onErrorOccurred?: (e: { error: number }) => void;
+  onDeviceConnected?: (event: any) => void;
+  onDeviceDisconnected?: (event: any) => void;
+  onSamplesAcquired?: (event: any) => void;
+  onQualityReported?: (event: any) => void;
+  onErrorOccurred?: (event: any) => void;
+}
+
+declare global {
+  interface Window {
+    Fingerprint: any;
+    WebSdk: any;
+  }
 }

@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { 
   Users, 
@@ -10,7 +11,8 @@ import {
   Building2,
   XCircle,
   FileText,
-  Briefcase
+  Briefcase,
+  Cpu
 } from 'lucide-react';
 import { Hospital, HospitalPermissions } from '../types';
 import { StorageService } from '../services/storage';
@@ -46,6 +48,8 @@ export const Layout: React.FC<LayoutProps> = ({
     { id: 'biometria', label: 'Biometria', icon: Fingerprint, permissionKey: 'biometria' },
     { id: 'auditoria', label: 'Auditoria & Logs', icon: ShieldCheck, permissionKey: 'auditoria' },
     { id: 'gestao', label: 'Gestão de Usuários', icon: Briefcase, permissionKey: 'gestao' },
+    // Item de teste técnico - visível para quem tem acesso a biometria ou gestão
+    { id: 'biometric-test', label: 'Teste SDK', icon: Cpu, permissionKey: 'gestao' }, 
   ];
 
   // Filter items based on permissions
@@ -53,6 +57,12 @@ export const Layout: React.FC<LayoutProps> = ({
     // If no permissions object provided, assume full access (for backward compatibility/master)
     // OR verify the specific key
     if (!permissions) return true;
+    
+    // Special case for Test Page: Allow if user has gestao OR biometria
+    if (item.id === 'biometric-test') {
+        return permissions.gestao || permissions.biometria;
+    }
+
     return permissions[item.permissionKey as keyof HospitalPermissions] === true;
   });
 

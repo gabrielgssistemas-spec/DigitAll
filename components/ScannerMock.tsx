@@ -1,14 +1,8 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Fingerprint, CheckCircle, AlertCircle, Scan, Usb, Monitor, Loader2, RefreshCw, ExternalLink } from 'lucide-react';
 import { biometryService } from '../services/biometry';
 import { SampleFormat } from '../types';
-
-declare global {
-  interface Window {
-    WebSdk: any;
-    Fingerprint: any;
-  }
-}
 
 interface ScannerMockProps {
   onScanSuccess: (hash: string) => void;
