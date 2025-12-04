@@ -137,21 +137,6 @@ export const Layout: React.FC<LayoutProps> = ({
               <span>{item.label}</span>
             </button>
           ))}
-          
-          {/* Link Diagnóstico (Visível para Gestores) */}
-          {(!permissions || permissions.biometria) && (
-             <button
-                onClick={() => onChangeView('testes')}
-                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${
-                  currentView === 'testes' 
-                    ? 'bg-primary-700 text-white shadow-lg' 
-                    : 'text-primary-100 hover:bg-primary-800 hover:text-white'
-                }`}
-              >
-                <Wrench className="h-5 w-5" />
-                <span>Diagnóstico</span>
-              </button>
-          )}
         </nav>
 
         <div className="p-4 border-t border-primary-800">

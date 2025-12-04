@@ -4,7 +4,6 @@ import { Layout } from './components/Layout';
 import { StorageService } from './services/storage';
 import { CooperadoRegister } from './views/CooperadoRegister';
 import { BiometriaManager } from './views/BiometriaManager';
-import { BiometricCapture } from './views/BiometricCapture';
 import { PontoMachine } from './views/PontoMachine';
 import { Dashboard } from './views/Dashboard';
 import { AuditLogViewer } from './views/AuditLogViewer';
@@ -39,7 +38,7 @@ export default function App() {
     if (session) {
       setIsAuthenticated(true);
       setUserPermissions(session.permissions);
-      if (currentView !== 'testes' && !session.permissions[currentView as keyof HospitalPermissions]) {
+      if (!session.permissions[currentView as keyof HospitalPermissions]) {
         const firstAllowed = Object.keys(session.permissions).find(k => session.permissions[k as keyof HospitalPermissions]);
         if (firstAllowed) setCurrentView(firstAllowed);
       }
@@ -62,12 +61,6 @@ export default function App() {
   };
 
   const handleChangeView = (view: string) => {
-    // Permite acesso irrestrito à tela de testes se for admin/gestor
-    if (view === 'testes') {
-        setCurrentView(view);
-        return;
-    }
-
     if (userPermissions && userPermissions[view as keyof HospitalPermissions]) {
       setCurrentView(view);
     } else {
@@ -80,7 +73,7 @@ export default function App() {
   }
 
   const renderView = () => {
-    if (currentView !== 'testes' && userPermissions && !userPermissions[currentView as keyof HospitalPermissions]) {
+    if (userPermissions && !userPermissions[currentView as keyof HospitalPermissions]) {
         return <div className="p-10 text-center text-gray-500">Acesso não autorizado.</div>;
     }
     switch(currentView) {
@@ -94,7 +87,6 @@ export default function App() {
       case 'biometria': return <BiometriaManager />;
       case 'auditoria': return <AuditLogViewer />;
       case 'gestao': return <Management />;
-      case 'testes': return <BiometricCapture />;
       default: return <Dashboard />;
     }
   };
