@@ -140,6 +140,7 @@ export const BiometriaManager: React.FC = () => {
                       <ScannerMock 
                         onScanSuccess={handleScanSuccess} 
                         label="Clique no sensor para capturar"
+                        allowSimulation={true} // Habilitado para gestores testarem/simularem
                       />
                       <div className="text-sm text-gray-600 space-y-2 max-w-xs">
                         <p className="flex items-start">

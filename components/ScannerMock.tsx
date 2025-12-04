@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Fingerprint, CheckCircle, AlertCircle, Scan, Usb, Monitor, Loader2, ExternalLink } from 'lucide-react';
+import { Fingerprint, CheckCircle, AlertCircle, Loader2, ExternalLink, Usb, MousePointer2 } from 'lucide-react';
 import { biometryService } from '../services/biometry';
 import { SampleFormat } from '../types';
 
@@ -9,24 +9,27 @@ interface ScannerMockProps {
   onScanError?: (msg: string) => void;
   label?: string;
   isVerifying?: boolean;
+  allowSimulation?: boolean; // Nova prop para controlar visibilidade do simulador
 }
 
 export const ScannerMock: React.FC<ScannerMockProps> = ({ 
   onScanSuccess, 
   onScanError, 
   label = "Posicione o dedo no leitor",
-  isVerifying = false
+  isVerifying = false,
+  allowSimulation = false
 }) => {
-  const [mode, setMode] = useState<'SIMULATOR' | 'DEVICE'>('SIMULATOR');
+  // Se allowSimulation for false, forçamos DEVICE. Se for true, iniciamos em DEVICE mas permitimos troca.
+  const [mode, setMode] = useState<'DEVICE' | 'SIMULATION'>('DEVICE');
+  
   const [status, setStatus] = useState<'IDLE' | 'SCANNING' | 'SUCCESS' | 'ERROR'>('IDLE');
-  const [progress, setProgress] = useState(0);
-  const [deviceMessage, setDeviceMessage] = useState<string>('');
+  const [deviceMessage, setDeviceMessage] = useState<string>('Inicializando...');
   const [sdkLoaded, setSdkLoaded] = useState(false);
   const [fingerImage, setFingerImage] = useState<string | null>(null);
   
   const isMounted = useRef(true);
   
-  // Refs para manter as versões mais recentes dos callbacks e evitar Stale Closures
+  // Refs para callbacks
   const onScanSuccessRef = useRef(onScanSuccess);
   const onScanErrorRef = useRef(onScanError);
 
@@ -38,6 +41,13 @@ export const ScannerMock: React.FC<ScannerMockProps> = ({
     onScanErrorRef.current = onScanError;
   }, [onScanError]);
 
+  // Forçar modo DEVICE se simulação for desativada externamente
+  useEffect(() => {
+    if (!allowSimulation) {
+      setMode('DEVICE');
+    }
+  }, [allowSimulation]);
+
   // 1. Detectar SDK Globalmente
   useEffect(() => {
     const checkSdk = setInterval(() => {
@@ -45,14 +55,13 @@ export const ScannerMock: React.FC<ScannerMockProps> = ({
         clearInterval(checkSdk);
         if (isMounted.current) {
           setSdkLoaded(true);
-          setMode('DEVICE'); // Auto-switch para Device se SDK detectado
         }
       }
     }, 1000);
     return () => { isMounted.current = false; clearInterval(checkSdk); };
   }, []);
 
-  // 2. Inicialização do Leitor Físico
+  // 2. Inicialização do Leitor Físico (Apenas no modo DEVICE)
   useEffect(() => {
     if (mode === 'DEVICE') {
       if (sdkLoaded) {
@@ -61,10 +70,10 @@ export const ScannerMock: React.FC<ScannerMockProps> = ({
         setDeviceMessage('Aguardando Drivers...');
       }
     } else {
-      biometryService.stopAcquisition().catch(() => {});
-      setDeviceMessage('');
-      setStatus('IDLE');
-      setFingerImage(null);
+        // Se mudou para simulação, parar qualquer aquisição em andamento
+        biometryService.stopAcquisition().catch(() => {});
+        setDeviceMessage('Modo Simulação Ativo');
+        setStatus('IDLE');
     }
     
     return () => {
@@ -88,23 +97,18 @@ export const ScannerMock: React.FC<ScannerMockProps> = ({
           setDeviceMessage('Leitura OK!');
           
           if (s.samples) {
-            // Se for PNG (para feedback visual)
             if (typeof s.samples === 'string' && s.samples.startsWith('data:image')) {
                 setFingerImage(s.samples);
             }
             
-            // Gera um hash simulado baseado no tamanho da string da biometria para a demo
-            // Em produção real, você usaria o Template (formato Intermediate) para comparação no servidor
             const simulatedHash = `BIO_HASH_${s.samples.length}_${Date.now()}`;
             
             setTimeout(() => {
               if (isMounted.current) {
-                // IMPORTANTE: Usar .current para acessar a função mais recente
-                // Isso evita que o listener use uma versão antiga da função onde o state do pai (ex: hospitalId) estava vazio
                 onScanSuccessRef.current(simulatedHash);
                 setStatus('IDLE');
-                setFingerImage(null); // Limpa imagem após sucesso
-                setDeviceMessage('Pronto.');
+                setFingerImage(null); 
+                setDeviceMessage('Pronto. Posicione o dedo.');
               }
             }, 800);
           }
@@ -117,7 +121,6 @@ export const ScannerMock: React.FC<ScannerMockProps> = ({
         }
       });
 
-      // Inicia captura visual (PNG) para feedback do usuário
       await biometryService.startAcquisition(SampleFormat.PngImage);
       setDeviceMessage('Aguardando dedo...');
 
@@ -135,116 +138,111 @@ export const ScannerMock: React.FC<ScannerMockProps> = ({
   };
 
   // Lógica do Simulador
-  const startScanSimulator = () => {
-    if (status === 'SCANNING') return;
+  const handleSimulatedScan = () => {
+    if (mode !== 'SIMULATION' || status === 'SUCCESS') return;
+    
     setStatus('SCANNING');
-    setProgress(0);
-  };
-
-  useEffect(() => {
-    let interval: any;
-    if (mode === 'SIMULATOR' && status === 'SCANNING') {
-      interval = setInterval(() => {
-        setProgress((prev) => {
-          if (prev >= 100) {
-            clearInterval(interval);
-            setStatus('SUCCESS');
-            setTimeout(() => {
-              if (isMounted.current) {
-                // No simulador, o efeito roda a cada atualização de onScanSuccess (via deps),
-                // mas usar ref mantém a consistência com o modo Device
-                onScanSuccessRef.current(`sim_hash_${Math.random().toString(36).substring(7)}`);
-                setStatus('IDLE');
-                setProgress(0);
-              }
-            }, 500);
-            return 100;
+    setDeviceMessage('Simulando leitura...');
+    
+    setTimeout(() => {
+      setStatus('SUCCESS');
+      setDeviceMessage('Leitura OK (Simulada)');
+      // Hash fixo para facilitar testes de managers
+      const mockHash = "simulated_hash_xyz"; 
+      
+      setTimeout(() => {
+          if (isMounted.current) {
+            onScanSuccessRef.current(mockHash);
+            setStatus('IDLE');
+            setDeviceMessage('Modo Simulação Ativo');
           }
-          return prev + 5; 
-        });
-      }, 50);
-    }
-    return () => clearInterval(interval);
-  }, [status, mode]); // Removido onScanSuccess das deps pois usamos ref
+      }, 1000);
+    }, 1500);
+  };
 
   return (
     <div className="flex flex-col items-center justify-center p-6 bg-white rounded-xl shadow-lg border border-gray-200 max-w-sm mx-auto transition-all">
       
-      {/* Botões de Modo */}
-      <div className="flex bg-gray-100 p-1 rounded-lg mb-6 w-full">
-        <button
-          onClick={() => setMode('SIMULATOR')}
-          className={`flex-1 flex items-center justify-center py-1.5 text-xs font-medium rounded-md transition-all ${
-            mode === 'SIMULATOR' ? 'bg-white text-primary-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          <Monitor className="h-3 w-3 mr-1.5" />
-          Simulador
-        </button>
-        <button
-          onClick={() => setMode('DEVICE')}
-          disabled={!sdkLoaded}
-          className={`flex-1 flex items-center justify-center py-1.5 text-xs font-medium rounded-md transition-all ${
-            mode === 'DEVICE' ? 'bg-white text-primary-700 shadow-sm' : 'text-gray-400 cursor-not-allowed'
-          }`}
-        >
-          {sdkLoaded ? <Usb className="h-3 w-3 mr-1.5" /> : <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />}
-          Leitor USB
-        </button>
+      {/* Toggle de Modo (Apenas se permitido) */}
+      {allowSimulation && (
+        <div className="flex bg-gray-100 p-1 rounded-lg mb-4 w-full max-w-[200px]">
+          <button 
+            onClick={() => setMode('SIMULATION')}
+            className={`flex-1 py-1 text-xs font-medium rounded-md transition-all ${mode === 'SIMULATION' ? 'bg-white shadow text-primary-700' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            Simulador
+          </button>
+          <button 
+            onClick={() => setMode('DEVICE')}
+            className={`flex-1 py-1 text-xs font-medium rounded-md transition-all ${mode === 'DEVICE' ? 'bg-white shadow text-primary-700' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            Leitor USB
+          </button>
+        </div>
+      )}
+
+      {/* Header Visual Compacto */}
+      <div className={`flex items-center space-x-2 text-gray-500 mb-4 bg-gray-50 px-3 py-1 rounded-full border border-gray-100 ${allowSimulation ? '' : 'mt-2'}`}>
+        {mode === 'DEVICE' ? (
+            <>
+                {sdkLoaded ? <Usb className="h-4 w-4 text-green-500" /> : <Loader2 className="h-4 w-4 animate-spin text-amber-500" />}
+                <span className="text-xs font-semibold uppercase tracking-wide">
+                    {sdkLoaded ? 'Leitor Biométrico Ativo' : 'Carregando Drivers...'}
+                </span>
+            </>
+        ) : (
+            <>
+                <MousePointer2 className="h-4 w-4 text-blue-500" />
+                <span className="text-xs font-semibold uppercase tracking-wide text-blue-600">
+                    Clique para Simular
+                </span>
+            </>
+        )}
       </div>
 
       {/* Interface Visual do Sensor */}
       <div 
-        onClick={mode === 'SIMULATOR' ? startScanSimulator : undefined}
+        onClick={mode === 'SIMULATION' ? handleSimulatedScan : undefined}
         className={`relative w-40 h-40 rounded-xl flex items-center justify-center border-2 transition-all duration-300 overflow-hidden ${
-          status === 'IDLE' ? 'border-gray-200 bg-gray-50' :
+          mode === 'SIMULATION' ? 'cursor-pointer hover:bg-gray-50' : 'cursor-default'
+        } ${
+          status === 'IDLE' ? (mode === 'SIMULATION' ? 'border-blue-300 border-dashed bg-white' : 'border-gray-200 bg-gray-50') :
           status === 'SCANNING' ? 'border-blue-400 bg-blue-50' :
           status === 'SUCCESS' ? 'border-green-500 bg-green-50' :
           'border-red-500 bg-red-50'
-        } ${mode === 'SIMULATOR' ? 'cursor-pointer hover:border-primary-400' : ''}`}
+        }`}
       >
         {fingerImage ? (
             <img src={fingerImage} alt="Fingerprint" className="w-full h-full object-contain p-2 opacity-90" />
         ) : (
             <>
                 {status === 'IDLE' && (
-                  mode === 'DEVICE' ? (
-                     <Fingerprint className="w-16 h-16 text-primary-400 animate-pulse" />
-                  ) : (
-                    <Scan className="w-16 h-16 text-gray-400" />
-                  )
+                     <Fingerprint className={`w-16 h-16 ${mode === 'SIMULATION' ? 'text-blue-300' : 'text-primary-400 animate-pulse'}`} />
                 )}
                 {status === 'SCANNING' && <Fingerprint className="w-16 h-16 text-blue-500 animate-pulse" />}
                 {status === 'SUCCESS' && <CheckCircle className="w-16 h-16 text-green-600" />}
                 {status === 'ERROR' && <AlertCircle className="w-16 h-16 text-red-600" />}
             </>
         )}
-
-        {mode === 'SIMULATOR' && status === 'SCANNING' && (
-          <div 
-            className="absolute top-0 left-0 w-full h-1 bg-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.5)] opacity-80"
-            style={{ 
-              top: `${progress}%`,
-              transition: 'top 0.05s linear' 
-            }}
-          />
+        
+        {mode === 'SIMULATION' && status === 'IDLE' && (
+            <span className="absolute bottom-2 text-[10px] text-blue-400 font-bold uppercase tracking-wider">Clique Aqui</span>
         )}
       </div>
 
       {/* Mensagens de Status */}
       <div className="mt-4 text-center w-full">
-        <h3 className="font-semibold text-gray-800 break-words px-2 text-sm min-h-[1.25rem]">
+        <h3 className={`font-semibold break-words px-2 text-sm min-h-[1.25rem] ${status === 'ERROR' ? 'text-red-600' : 'text-gray-800'}`}>
           {status === 'SCANNING' ? 'Lendo digital...' : 
            status === 'SUCCESS' ? 'Leitura OK!' : 
-           mode === 'DEVICE' ? deviceMessage : 
-           (isVerifying ? 'Clique para identificar' : 'Clique para simular')}
+           deviceMessage}
         </h3>
         
         {mode === 'DEVICE' && (status === 'ERROR' || !sdkLoaded) && (
-          <div className="mt-3 w-full space-y-2">
+          <div className="mt-3 w-full space-y-2 animate-fade-in">
             {!sdkLoaded && (
-               <p className="text-[10px] text-red-500 bg-red-50 p-1 rounded border border-red-100">
-                 Drivers não detectados.
+               <p className="text-[10px] text-amber-600 bg-amber-50 p-2 rounded border border-amber-100 flex items-center justify-center gap-1">
+                 <Loader2 className="h-3 w-3 animate-spin" /> Verificando drivers...
                </p>
             )}
             <a 
@@ -254,7 +252,7 @@ export const ScannerMock: React.FC<ScannerMockProps> = ({
               className="flex items-center justify-center w-full px-3 py-2 bg-gray-50 text-gray-700 text-xs font-bold rounded border border-gray-200 hover:bg-gray-100 transition-colors"
             >
               <ExternalLink className="w-3 h-3 mr-2" />
-              Testar Conexão Local
+              Verificar Conexão USB
             </a>
           </div>
         )}

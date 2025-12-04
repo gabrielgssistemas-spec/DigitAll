@@ -287,6 +287,7 @@ export const PontoMachine: React.FC = () => {
                   onScanSuccess={handleIdentification} 
                   isVerifying={true}
                   label={(!selectedHospitalId || !selectedSetorId) ? "Selecione o setor para liberar" : "Coloque o dedo para registrar"}
+                  allowSimulation={!isHospitalUser} 
                 />
               </div>
               
