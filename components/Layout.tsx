@@ -13,16 +13,16 @@ import {
   FileText,
   Briefcase,
   FileClock,
-  CheckSquare
+  CheckSquare,
+  Wrench
 } from 'lucide-react';
 import { Hospital, HospitalPermissions } from '../types';
-import { StorageService } from '../services/storage';
 
 interface LayoutProps {
   children: React.ReactNode;
   currentView: string;
   onChangeView: (view: string) => void;
-  onLogout: () => void; // Added prop for state-driven logout
+  onLogout: () => void;
   isKiosk?: boolean;
   kioskHospital?: Hospital;
   permissions?: HospitalPermissions; 
@@ -39,7 +39,6 @@ export const Layout: React.FC<LayoutProps> = ({
 }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
 
-  // All possible menu items
   const allNavItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, permissionKey: 'dashboard' },
     { id: 'ponto', label: 'Registrar Produção', icon: ClipboardCheck, permissionKey: 'ponto' },
@@ -53,29 +52,22 @@ export const Layout: React.FC<LayoutProps> = ({
     { id: 'gestao', label: 'Gestão de Usuários', icon: Briefcase, permissionKey: 'gestao' },
   ];
 
-  // Filter items based on permissions
   const navItems = allNavItems.filter(item => {
-    // If no permissions object provided, assume full access (for backward compatibility/master)
-    // OR verify the specific key
     if (!permissions) return true;
-    
     return permissions[item.permissionKey as keyof HospitalPermissions] === true;
   });
 
   const exitKioskMode = () => {
-    // Remove query params to go back to admin mode
     window.location.search = '';
   };
 
   const handleLogoutClick = () => {
-    // Trigger the state reset in App.tsx
     onLogout();
   };
 
   if (isKiosk) {
     return (
       <div className="flex flex-col h-screen bg-gray-50">
-        {/* Kiosk Header */}
         <header className="bg-primary-900 text-white shadow-lg p-6 flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <div className="bg-white p-2 rounded-full">
@@ -104,14 +96,12 @@ export const Layout: React.FC<LayoutProps> = ({
           </button>
         </header>
 
-        {/* Kiosk Content */}
         <main className="flex-1 overflow-hidden p-6 flex flex-col items-center justify-center">
           <div className="w-full max-w-4xl h-full flex flex-col justify-center">
             {children}
           </div>
         </main>
         
-        {/* Footer for Kiosk */}
         <footer className="p-4 text-center text-gray-400 text-xs">
           Sistema de Controle de Produção &bull; DigitAll &bull; Modo Quiosque
         </footer>
@@ -121,7 +111,6 @@ export const Layout: React.FC<LayoutProps> = ({
 
   return (
     <div className="flex h-screen bg-gray-100">
-      {/* Sidebar for Desktop */}
       <aside className={`bg-primary-900 text-white w-64 flex-shrink-0 hidden md:flex flex-col transition-all duration-300`}>
         <div className="p-6 flex items-center space-x-3 border-b border-primary-800">
           <div className="bg-white p-1 rounded-full">
@@ -148,6 +137,21 @@ export const Layout: React.FC<LayoutProps> = ({
               <span>{item.label}</span>
             </button>
           ))}
+          
+          {/* Link Diagnóstico (Visível para Gestores) */}
+          {(!permissions || permissions.biometria) && (
+             <button
+                onClick={() => onChangeView('testes')}
+                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${
+                  currentView === 'testes' 
+                    ? 'bg-primary-700 text-white shadow-lg' 
+                    : 'text-primary-100 hover:bg-primary-800 hover:text-white'
+                }`}
+              >
+                <Wrench className="h-5 w-5" />
+                <span>Diagnóstico</span>
+              </button>
+          )}
         </nav>
 
         <div className="p-4 border-t border-primary-800">
@@ -161,9 +165,7 @@ export const Layout: React.FC<LayoutProps> = ({
         </div>
       </aside>
 
-      {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Mobile Header */}
         <header className="bg-white shadow-sm md:hidden flex items-center justify-between p-4">
           <div className="flex items-center space-x-2">
             <ClipboardCheck className="h-6 w-6 text-primary-700" />
@@ -174,7 +176,6 @@ export const Layout: React.FC<LayoutProps> = ({
           </button>
         </header>
 
-        {/* Mobile Menu Dropdown */}
         {isMobileMenuOpen && (
           <div className="md:hidden bg-primary-900 text-white p-4 space-y-2 absolute w-full z-50">
             {navItems.map((item) => (
@@ -204,7 +205,6 @@ export const Layout: React.FC<LayoutProps> = ({
           </div>
         )}
 
-        {/* Scrollable Content Area */}
         <main className="flex-1 overflow-y-auto p-4 md:p-8">
           <div className="max-w-7xl mx-auto">
             {children}

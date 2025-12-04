@@ -4,15 +4,21 @@ import { SampleFormat, SdkEventListener } from '../types';
 export class DigitalPersonaService {
   private reader: any;
   private isConnected: boolean = false;
+  private acquisitionStarted: boolean = false;
+  private currentFormat: SampleFormat = SampleFormat.PngImage;
 
   constructor() {
-    // Lazy init - do not initialize in constructor to avoid race conditions
+    // Lazy initialization handled in getReader
+  }
+
+  public isSdkLoaded(): boolean {
+    return typeof window.Fingerprint !== 'undefined';
   }
 
   private getReader() {
     if (this.reader) return this.reader;
 
-    if (typeof window.Fingerprint === 'undefined') {
+    if (!this.isSdkLoaded()) {
       return null;
     }
 
@@ -25,41 +31,62 @@ export class DigitalPersonaService {
     }
   }
 
-  public isSdkLoaded(): boolean {
-    return typeof window.Fingerprint !== 'undefined';
+  public async enumerateDevices(): Promise<string[]> {
+    const reader = this.getReader();
+    if (!reader) return [];
+    try {
+      const devices = await reader.enumerateDevices();
+      // O SDK pode retornar uma string JSON ou já o array dependendo da versão
+      return typeof devices === 'string' ? JSON.parse(devices) : devices;
+    } catch (e) {
+      console.error('Error enumerating devices', e);
+      return [];
+    }
   }
 
-  public async startAcquisition(format: SampleFormat = SampleFormat.PngImage): Promise<void> {
+  public async startAcquisition(format: SampleFormat = SampleFormat.PngImage, deviceUid?: string): Promise<string> {
     const reader = this.getReader();
-    
-    if (!reader) {
-      console.warn('SDK not loaded yet.');
-      throw new Error("SDK_NOT_LOADED");
+    if (!reader) throw new Error("SDK_NOT_LOADED");
+
+    if (this.acquisitionStarted) {
+        await this.stopAcquisition();
     }
 
+    let targetUid = deviceUid;
+    if (!targetUid) {
+        const devices = await this.enumerateDevices();
+        if (devices && devices.length > 0) {
+            targetUid = devices[0];
+        } else {
+            throw new Error("NO_DEVICE_FOUND");
+        }
+    }
+
+    this.currentFormat = format;
+
     try {
-      await reader.startAcquisition(format);
-      console.log('Fingerprint acquisition started');
+      await reader.startAcquisition(format, targetUid);
+      this.acquisitionStarted = true;
       this.isConnected = true;
+      console.log(`[Biometry] Started acquisition on ${targetUid}`);
+      return targetUid;
     } catch (error) {
-      console.error('Error starting acquisition:', error);
+      this.acquisitionStarted = false;
       this.isConnected = false;
-      // If error is "The system cannot find the file specified" (-2147024894), 
-      // it usually means the HTTP handshake failed but WS might work if we retry or ignore
-      // However, we usually propagate to let UI show help
+      console.error('[Biometry] Error starting acquisition:', error);
       throw error;
     }
   }
 
   public async stopAcquisition(): Promise<void> {
-    if (!this.reader) return;
+    const reader = this.getReader();
+    if (!reader) return;
 
     try {
-      await this.reader.stopAcquisition();
-      console.log('Fingerprint acquisition stopped');
-      this.isConnected = false;
+      await reader.stopAcquisition();
+      this.acquisitionStarted = false;
     } catch (error) {
-      console.error('Error stopping acquisition:', error);
+      console.warn('[Biometry] Error stopping:', error);
     }
   }
 
@@ -68,18 +95,14 @@ export class DigitalPersonaService {
     if (!reader) return;
 
     reader.onDeviceConnected = (e: any) => {
-      console.log('Device Connected', e);
+      this.isConnected = true;
       if (listener.onDeviceConnected) listener.onDeviceConnected(e);
     };
 
     reader.onDeviceDisconnected = (e: any) => {
-      console.log('Device Disconnected');
+      this.isConnected = false;
+      this.acquisitionStarted = false;
       if (listener.onDeviceDisconnected) listener.onDeviceDisconnected(e);
-    };
-
-    reader.onSamplesAcquired = (s: any) => {
-      console.log('Samples Acquired', s);
-      if (listener.onSamplesAcquired) listener.onSamplesAcquired(s);
     };
 
     reader.onQualityReported = (e: any) => {
@@ -87,21 +110,54 @@ export class DigitalPersonaService {
     };
 
     reader.onErrorOccurred = (e: any) => {
-      console.error('SDK Error', e);
+      this.acquisitionStarted = false;
       if (listener.onErrorOccurred) listener.onErrorOccurred(e);
     };
-  }
 
-  public async enumerateDevices(): Promise<string[]> {
-    const reader = this.getReader();
-    if (!reader) return [];
-    try {
-      const devices = await reader.enumerateDevices();
-      return devices;
-    } catch (e) {
-      console.error(e);
-      return [];
-    }
+    reader.onSamplesAcquired = (s: any) => {
+      try {
+          const Fingerprint = window.Fingerprint;
+          if (!Fingerprint) return;
+
+          let samples: any;
+          try {
+              samples = JSON.parse(s.samples);
+          } catch (e) {
+              samples = s.samples;
+          }
+
+          let processedData: string = "";
+
+          if (samples && samples.length > 0) {
+              if (this.currentFormat === SampleFormat.PngImage) {
+                  // Formato PngImage retorna Base64Url que precisa ser convertido para Base64 padrão
+                  const raw = samples[0]; 
+                  const b64 = Fingerprint.b64UrlTo64(raw);
+                  processedData = "data:image/png;base64," + b64;
+              } 
+              else if (this.currentFormat === SampleFormat.Intermediate || this.currentFormat === SampleFormat.Compressed) {
+                  // Outros formatos podem vir encapsulados em objetos Data
+                  const sampleObj = samples[0];
+                  const rawData = sampleObj.Data || sampleObj;
+                  processedData = Fingerprint.b64UrlTo64(rawData);
+              } else {
+                  // Fallback
+                  processedData = JSON.stringify(samples[0]);
+              }
+          }
+
+          if (listener.onSamplesAcquired) {
+              listener.onSamplesAcquired({
+                  originalEvent: s,
+                  samples: processedData, // Retorna string pronta para uso (src imagem ou hash)
+                  format: this.currentFormat
+              });
+          }
+
+      } catch (e) {
+          console.error("[Biometry] Error processing samples:", e);
+      }
+    };
   }
 }
 

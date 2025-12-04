@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Fingerprint, CheckCircle, AlertCircle, Scan, Usb, Monitor, Loader2, RefreshCw, ExternalLink } from 'lucide-react';
+import { Fingerprint, CheckCircle, AlertCircle, Scan, Usb, Monitor, Loader2, ExternalLink } from 'lucide-react';
 import { biometryService } from '../services/biometry';
 import { SampleFormat } from '../types';
 
@@ -21,38 +21,23 @@ export const ScannerMock: React.FC<ScannerMockProps> = ({
   const [status, setStatus] = useState<'IDLE' | 'SCANNING' | 'SUCCESS' | 'ERROR'>('IDLE');
   const [progress, setProgress] = useState(0);
   const [deviceMessage, setDeviceMessage] = useState<string>('');
-  
-  // Real Device State
   const [sdkLoaded, setSdkLoaded] = useState(false);
+  const [fingerImage, setFingerImage] = useState<string | null>(null);
+  
   const isMounted = useRef(true);
 
-  // 1. Verificação Simples e Robusta do SDK
+  // 1. Detectar SDK Globalmente
   useEffect(() => {
-    let attempts = 0;
-    const maxAttempts = 50; // Tenta por 5 segundos (50 * 100ms)
-
-    const checkGlobalSdk = setInterval(() => {
-      attempts++;
-      
-      // Verifica se as globais existem no window
-      if (window.Fingerprint && window.WebSdk) {
-        clearInterval(checkGlobalSdk);
+    const checkSdk = setInterval(() => {
+      if (biometryService.isSdkLoaded()) {
+        clearInterval(checkSdk);
         if (isMounted.current) {
-          console.log("SDK Digital Persona detectado via HTML estático.");
           setSdkLoaded(true);
-          // Auto-mudar para modo DEVICE se detectar o SDK
-          if (mode === 'SIMULATOR') setMode('DEVICE');
+          setMode('DEVICE'); // Auto-switch para Device se SDK detectado
         }
-      } else if (attempts >= maxAttempts) {
-        clearInterval(checkGlobalSdk);
-        console.warn("Timeout: SDK não encontrado no objeto window. (Modo Simulação Ativo)");
       }
-    }, 100);
-
-    return () => {
-      isMounted.current = false;
-      clearInterval(checkGlobalSdk);
-    };
+    }, 1000);
+    return () => { isMounted.current = false; clearInterval(checkSdk); };
   }, []);
 
   // 2. Inicialização do Leitor Físico
@@ -61,61 +46,76 @@ export const ScannerMock: React.FC<ScannerMockProps> = ({
       if (sdkLoaded) {
         initializeRealDevice();
       } else {
-        setDeviceMessage('Aguardando carregamento do SDK...');
+        setDeviceMessage('Aguardando Drivers...');
       }
     } else {
-      // Para o leitor se voltar para o simulador
       biometryService.stopAcquisition().catch(() => {});
       setDeviceMessage('');
       setStatus('IDLE');
+      setFingerImage(null);
     }
+    
+    return () => {
+      if (mode === 'DEVICE') biometryService.stopAcquisition().catch(() => {});
+    };
   }, [mode, sdkLoaded]);
 
   const initializeRealDevice = async () => {
     try {
-      setDeviceMessage('Conectando ao serviço local...');
+      setDeviceMessage('Buscando leitor...');
       setStatus('IDLE');
       
-      // Configura os ouvintes de eventos
       biometryService.setListener({
-        onDeviceConnected: (d) => setDeviceMessage('Leitor Conectado! Coloque o dedo.'),
-        onDeviceDisconnected: () => setDeviceMessage('Leitor Desconectado. Verifique o USB.'),
-        onSamplesAcquired: (s) => {
+        onDeviceConnected: () => setDeviceMessage('Leitor Conectado.'),
+        onDeviceDisconnected: () => {
+            setDeviceMessage('Leitor Desconectado.');
+            setStatus('ERROR');
+        },
+        onSamplesAcquired: (s: any) => {
           setStatus('SUCCESS');
-          setDeviceMessage('Leitura realizada!');
+          setDeviceMessage('Leitura OK!');
           
-          if (s.samples && s.samples.length > 0) {
-            // Em produção, aqui você enviaria o s.samples[0].data (Base64)
-            // Gera um hash visual para simulação
-            const rawData = s.samples[0].data || "data";
-            const pseudoHash = `bio_${rawData.substring(0, 10)}_${Date.now()}`; 
+          if (s.samples) {
+            // Se for PNG (para feedback visual)
+            if (typeof s.samples === 'string' && s.samples.startsWith('data:image')) {
+                setFingerImage(s.samples);
+            }
+            
+            // Gera um hash simulado baseado no tamanho da string da biometria para a demo
+            // Em produção real, você usaria o Template (formato Intermediate) para comparação no servidor
+            const simulatedHash = `BIO_HASH_${s.samples.length}_${Date.now()}`;
             
             setTimeout(() => {
               if (isMounted.current) {
-                onScanSuccess(pseudoHash);
+                onScanSuccess(simulatedHash);
                 setStatus('IDLE');
-                setDeviceMessage('Pronto para próxima leitura.');
+                setFingerImage(null); // Limpa imagem após sucesso
+                setDeviceMessage('Pronto.');
               }
-            }, 500);
+            }, 800);
           }
         },
-        onErrorOccurred: (e) => {
+        onErrorOccurred: (e: any) => {
           setStatus('ERROR');
-          setDeviceMessage(`Erro Driver: ${e.error}`);
+          const msg = e.message || "Erro desconhecido no leitor";
+          setDeviceMessage(msg);
+          if (onScanError) onScanError(msg);
         }
       });
 
-      // Inicia a captura
+      // Inicia captura visual (PNG) para feedback do usuário
       await biometryService.startAcquisition(SampleFormat.PngImage);
-      setDeviceMessage('Leitor Ativo. Aguardando digital...');
-      
+      setDeviceMessage('Aguardando dedo...');
+
     } catch (err: any) {
-      setStatus('ERROR');
       console.error(err);
-      if (err.message === "SDK_NOT_LOADED") {
-         setDeviceMessage('Erro Crítico: SDK JS não carregou.');
+      setStatus('ERROR');
+      if (err.message === "NO_DEVICE_FOUND") {
+          setDeviceMessage("Nenhum leitor encontrado.");
+      } else if (err.message === "SDK_NOT_LOADED") {
+          setDeviceMessage("Driver não carregado.");
       } else {
-         setDeviceMessage('Falha de conexão com o Serviço Local.');
+          setDeviceMessage("Erro ao iniciar.");
       }
     }
   };
@@ -167,11 +167,12 @@ export const ScannerMock: React.FC<ScannerMockProps> = ({
         </button>
         <button
           onClick={() => setMode('DEVICE')}
+          disabled={!sdkLoaded}
           className={`flex-1 flex items-center justify-center py-1.5 text-xs font-medium rounded-md transition-all ${
-            mode === 'DEVICE' ? 'bg-white text-primary-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            mode === 'DEVICE' ? 'bg-white text-primary-700 shadow-sm' : 'text-gray-400 cursor-not-allowed'
           }`}
         >
-          <Usb className="h-3 w-3 mr-1.5" />
+          {sdkLoaded ? <Usb className="h-3 w-3 mr-1.5" /> : <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />}
           Leitor USB
         </button>
       </div>
@@ -179,25 +180,31 @@ export const ScannerMock: React.FC<ScannerMockProps> = ({
       {/* Interface Visual do Sensor */}
       <div 
         onClick={mode === 'SIMULATOR' ? startScanSimulator : undefined}
-        className={`relative w-40 h-40 rounded-full flex items-center justify-center border-4 transition-all duration-300 ${
+        className={`relative w-40 h-40 rounded-xl flex items-center justify-center border-2 transition-all duration-300 overflow-hidden ${
           status === 'IDLE' ? 'border-gray-200 bg-gray-50' :
           status === 'SCANNING' ? 'border-blue-400 bg-blue-50' :
           status === 'SUCCESS' ? 'border-green-500 bg-green-50' :
           'border-red-500 bg-red-50'
         } ${mode === 'SIMULATOR' ? 'cursor-pointer hover:border-primary-400' : ''}`}
       >
-        {status === 'IDLE' && (
-          mode === 'DEVICE' && !sdkLoaded ? (
-            <Loader2 className="w-16 h-16 text-primary-300 animate-spin" />
-          ) : (
-            <Scan className={`w-16 h-16 ${mode === 'DEVICE' ? 'text-gray-300' : 'text-gray-400'}`} />
-          )
+        {fingerImage ? (
+            <img src={fingerImage} alt="Fingerprint" className="w-full h-full object-contain p-2 opacity-90" />
+        ) : (
+            <>
+                {status === 'IDLE' && (
+                  mode === 'DEVICE' ? (
+                     <Fingerprint className="w-16 h-16 text-primary-400 animate-pulse" />
+                  ) : (
+                    <Scan className="w-16 h-16 text-gray-400" />
+                  )
+                )}
+                {status === 'SCANNING' && <Fingerprint className="w-16 h-16 text-blue-500 animate-pulse" />}
+                {status === 'SUCCESS' && <CheckCircle className="w-16 h-16 text-green-600" />}
+                {status === 'ERROR' && <AlertCircle className="w-16 h-16 text-red-600" />}
+            </>
         )}
-        {status === 'SCANNING' && <Fingerprint className="w-16 h-16 text-blue-500 animate-pulse" />}
-        {status === 'SUCCESS' && <CheckCircle className="w-16 h-16 text-green-600" />}
-        {status === 'ERROR' && <AlertCircle className="w-16 h-16 text-red-600" />}
 
-        {status === 'SCANNING' && (
+        {mode === 'SIMULATOR' && status === 'SCANNING' && (
           <div 
             className="absolute top-0 left-0 w-full h-1 bg-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.5)] opacity-80"
             style={{ 
@@ -210,35 +217,29 @@ export const ScannerMock: React.FC<ScannerMockProps> = ({
 
       {/* Mensagens de Status */}
       <div className="mt-4 text-center w-full">
-        <h3 className="font-semibold text-gray-800">
+        <h3 className="font-semibold text-gray-800 break-words px-2 text-sm min-h-[1.25rem]">
           {status === 'SCANNING' ? 'Lendo digital...' : 
            status === 'SUCCESS' ? 'Leitura OK!' : 
-           mode === 'DEVICE' ? (sdkLoaded ? deviceMessage : 'Carregando recursos...') : 
-           (isVerifying ? 'Toque para identificar' : 'Toque para cadastrar')}
+           mode === 'DEVICE' ? deviceMessage : 
+           (isVerifying ? 'Clique para identificar' : 'Clique para simular')}
         </h3>
         
-        {/* Ajuda para Erro no Dispositivo */}
-        {mode === 'DEVICE' && !sdkLoaded && (
-            <div className="mt-2 text-[10px] text-red-500 bg-red-50 p-2 rounded">
-                Não foi possível carregar o driver (WebSdk).<br/>
-                Verifique se os arquivos estão na pasta public/js.
-            </div>
-        )}
-
-        {mode === 'DEVICE' && status === 'ERROR' && (
-          <div className="mt-3 w-full">
+        {mode === 'DEVICE' && (status === 'ERROR' || !sdkLoaded) && (
+          <div className="mt-3 w-full space-y-2">
+            {!sdkLoaded && (
+               <p className="text-[10px] text-red-500 bg-red-50 p-1 rounded border border-red-100">
+                 Drivers não detectados.
+               </p>
+            )}
             <a 
-              href="https://127.0.0.1:9001/connected" 
+              href="https://127.0.0.1:52181/get_connection" 
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center justify-center w-full px-3 py-2 bg-red-50 text-red-700 text-xs font-bold rounded border border-red-200 hover:bg-red-100 transition-colors"
+              className="flex items-center justify-center w-full px-3 py-2 bg-gray-50 text-gray-700 text-xs font-bold rounded border border-gray-200 hover:bg-gray-100 transition-colors"
             >
               <ExternalLink className="w-3 h-3 mr-2" />
               Testar Conexão Local
             </a>
-            <p className="text-[10px] text-gray-400 mt-1">
-              Se o link não abrir, o serviço do Windows não está rodando.
-            </p>
           </div>
         )}
       </div>

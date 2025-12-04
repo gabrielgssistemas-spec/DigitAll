@@ -1,10 +1,16 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import * as path from 'path';
 
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  base: './', // Garante que os assets sejam carregados a partir da raiz do domínio de forma relativa
+  base: './', 
+  resolve: {
+    alias: {
+      '@': path.resolve('./')
+    }
+  },
   build: {
     outDir: 'dist',
     assetsDir: 'assets',

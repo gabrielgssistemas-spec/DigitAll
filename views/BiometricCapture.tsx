@@ -1,244 +1,199 @@
 
-import React, { useEffect, useRef, useState } from 'react';
-import { Fingerprint, Play, Square, RefreshCw, AlertCircle, CheckCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { AlertCircle, Wifi, WifiOff, Loader, Fingerprint } from 'lucide-react';
+import { biometryService } from '../services/biometry';
+import { SampleFormat } from '../types';
 
 export const BiometricCapture: React.FC = () => {
-  // Estados
-  const [sdkLoaded, setSdkLoaded] = useState(false);
-  const [status, setStatus] = useState<string>('Inicializando...');
-  const [deviceConnected, setDeviceConnected] = useState(false);
+  const [devices, setDevices] = useState<string[]>([]);
+  const [selectedDevice, setSelectedDevice] = useState<string>('');
   const [isCapturing, setIsCapturing] = useState(false);
-  const [fingerprintImage, setFingerprintImage] = useState<string | null>(null);
+  const [capturedImage, setCapturedImage] = useState<string>('');
+  const [rawHash, setRawHash] = useState<string>('');
   const [quality, setQuality] = useState<string>('');
-  const [format, setFormat] = useState<number>(5); // PngImage = 5
-
-  // Referência para a instância do leitor (para não recriar a cada render)
-  const readerRef = useRef<any>(null);
+  const [message, setMessage] = useState<string>('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string>('');
+  const [sdkConnected, setSdkConnected] = useState(false);
+  const [currentFormat, setCurrentFormat] = useState<SampleFormat>(SampleFormat.PngImage);
 
   useEffect(() => {
-    // 1. Verifica se os scripts globais foram carregados (injetados pelo index.html)
-    const checkSdk = setInterval(() => {
-      if (typeof window.Fingerprint !== 'undefined') {
-        clearInterval(checkSdk);
-        setSdkLoaded(true);
-        initializeReader();
-      }
+    // Check for SDK load
+    const checkTimer = setInterval(() => {
+        if (biometryService.isSdkLoaded()) {
+            setSdkConnected(true);
+            loadDevices();
+            clearInterval(checkTimer);
+            setIsLoading(false);
+        }
     }, 500);
+    
+    // Fallback timeout
+    setTimeout(() => {
+        clearInterval(checkTimer);
+        if (!biometryService.isSdkLoaded()) {
+            setError("SDK não carregado. Verifique a instalação do driver.");
+            setIsLoading(false);
+        }
+    }, 5000);
 
-    // Timeout de segurança
-    setTimeout(() => clearInterval(checkSdk), 10000);
-
-    return () => {
-      clearInterval(checkSdk);
-      stopCapture(); // Garante parada ao desmontar
-    };
+    return () => clearInterval(checkTimer);
   }, []);
 
-  const initializeReader = () => {
-    try {
-      setStatus('Carregando WebApi...');
-      // Instancia a classe WebApi do SDK Global
-      readerRef.current = new window.Fingerprint.WebApi();
-      const reader = readerRef.current;
-
-      if (!reader) {
-        setStatus('Erro: Falha ao instanciar WebApi.');
-        return;
+  useEffect(() => {
+      // Listener Cleanup on Unmount
+      return () => {
+          biometryService.stopAcquisition().catch(() => {});
       }
+  }, []);
 
-      // Configuração dos Event Listeners do SDK
-      reader.onDeviceConnected = (e: any) => {
-        setDeviceConnected(true);
-        setStatus('Leitor Conectado (Pronto)');
-        console.log("Device Connected:", e);
-      };
-
-      reader.onDeviceDisconnected = (e: any) => {
-        setDeviceConnected(false);
-        setIsCapturing(false);
-        setStatus('Leitor Desconectado');
-        console.log("Device Disconnected:", e);
-      };
-
-      reader.onSamplesAcquired = (e: any) => {
-        console.log("Samples Acquired:", e);
-        setStatus('Amostra Capturada');
-        
-        if (e.samples && e.samples.length > 0) {
-          // O SDK retorna Base64Url (seguro para URL), precisamos converter para Base64 padrão para exibir na tag <img>
-          const rawData = e.samples[0].Data;
-          // Usa a função utilitária do próprio SDK se disponível, ou fallback
-          const base64Data = window.Fingerprint.b64UrlTo64 ? window.Fingerprint.b64UrlTo64(rawData) : rawData;
-          
-          setFingerprintImage(`data:image/png;base64,${base64Data}`);
-        }
-      };
-
-      reader.onQualityReported = (e: any) => {
-        setQuality(window.Fingerprint.QualityCode[e.quality] || `Q:${e.quality}`);
-      };
-
-      reader.onErrorOccurred = (e: any) => {
-        console.error("SDK Error:", e);
-        setIsCapturing(false);
-        setStatus(`Erro no Leitor: ${e.error}`);
-      };
-
-      setStatus('SDK Carregado. Aguardando conexão...');
-      
-      // Tenta listar dispositivos para forçar checagem
-      reader.enumerateDevices().then((devices: any) => {
-          if (devices.length > 0) {
-              setDeviceConnected(true);
-              setStatus(`Leitor Encontrado (${devices.length})`);
+  const loadDevices = async () => {
+      try {
+          const devs = await biometryService.enumerateDevices();
+          setDevices(devs);
+          if (devs.length > 0) {
+              setSelectedDevice(devs[0]);
+              setMessage(`Leitor detectado: ${devs[0]}`);
           } else {
-              setStatus('Nenhum leitor detectado. Verifique o USB.');
+              setMessage("Nenhum leitor encontrado.");
           }
-      }).catch((err: any) => {
-          setStatus('Erro ao listar dispositivos. O serviço está rodando?');
-      });
-
-    } catch (err) {
-      console.error(err);
-      setStatus('Erro Crítico ao iniciar SDK.');
-    }
+      } catch (e) {
+          setError("Erro ao listar dispositivos.");
+      }
   };
 
-  const startCapture = async () => {
-    if (!readerRef.current) return;
+  const handleStartCapture = async () => {
+      setError('');
+      setCapturedImage('');
+      setRawHash('');
+      setMessage("Iniciando...");
+      
+      try {
+          // Setup listeners before starting
+          biometryService.setListener({
+              onDeviceConnected: () => setMessage("Leitor conectado"),
+              onDeviceDisconnected: () => { setMessage("Leitor desconectado"); setIsCapturing(false); },
+              onQualityReported: (e: any) => setQuality(`Qualidade: ${e.quality}`),
+              onSamplesAcquired: (s: any) => {
+                  setMessage("Amostra adquirida!");
+                  if (s.samples) {
+                      if (currentFormat === SampleFormat.PngImage) {
+                          setCapturedImage(s.samples);
+                      } else {
+                          setRawHash(s.samples.substring(0, 50) + "...");
+                      }
+                  }
+              },
+              onErrorOccurred: (e: any) => {
+                  setError(e.message || "Erro no leitor");
+                  setIsCapturing(false);
+              }
+          });
 
-    try {
-      // Formato 5 = PngImage (Ideal para visualização)
-      // Formato 2 = Intermediate (Ideal para salvar no banco/comparação)
-      await readerRef.current.startAcquisition(format as any);
-      setIsCapturing(true);
-      setFingerprintImage(null); // Limpa imagem anterior
-      setStatus('Aguardando digital... (Coloque o dedo)');
-    } catch (err: any) {
-      setStatus(`Erro ao iniciar: ${err.message}`);
-      setIsCapturing(false);
-    }
+          await biometryService.startAcquisition(currentFormat, selectedDevice);
+          setIsCapturing(true);
+          setMessage("Coloque o dedo no sensor.");
+      } catch (e: any) {
+          setError(e.message || "Erro ao iniciar captura.");
+          setIsCapturing(false);
+      }
   };
 
-  const stopCapture = async () => {
-    if (!readerRef.current) return;
-
-    try {
-      await readerRef.current.stopAcquisition();
+  const handleStopCapture = async () => {
+      await biometryService.stopAcquisition();
       setIsCapturing(false);
-      setStatus('Leitura parada.');
-    } catch (err: any) {
-      console.warn('Erro ao parar (pode já estar parado):', err);
-    }
+      setMessage("Captura parada.");
   };
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
-      <div className="flex items-center space-x-3 mb-6">
-        <div className="bg-primary-100 p-2 rounded-full">
-            <Fingerprint className="h-8 w-8 text-primary-600" />
-        </div>
+    <div className="w-full max-w-4xl mx-auto p-6 bg-white rounded-lg shadow-lg">
+      <div className="flex justify-between items-center mb-6">
         <div>
-            <h2 className="text-2xl font-bold text-gray-800">Teste de Biometria (SDK Nativo)</h2>
-            <p className="text-gray-500">Interface direta com DigitalPersona WebAPI</p>
+            <h2 className="text-2xl font-bold text-gray-800">Diagnóstico de Biometria</h2>
+            <p className="text-gray-500 text-sm">Teste de conexão e qualidade do leitor</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {sdkConnected ? (
+            <span className="flex items-center text-sm text-green-600 bg-green-50 px-3 py-1 rounded-full border border-green-200">
+                <Wifi className="h-4 w-4 mr-2" /> SDK Ativo
+            </span>
+          ) : (
+            <span className="flex items-center text-sm text-red-600 bg-red-50 px-3 py-1 rounded-full border border-red-200">
+                <WifiOff className="h-4 w-4 mr-2" /> SDK Offline
+            </span>
+          )}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Painel de Controle */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 space-y-6">
-            
-            {/* Status Indicator */}
-            <div className={`p-4 rounded-lg border flex items-center justify-between ${
-                sdkLoaded ? 'bg-blue-50 border-blue-200' : 'bg-red-50 border-red-200'
-            }`}>
-                <div className="flex items-center gap-3">
-                    {sdkLoaded ? <CheckCircle className="text-blue-600 h-5 w-5"/> : <AlertCircle className="text-red-600 h-5 w-5"/>}
-                    <div className="flex flex-col">
-                        <span className="font-bold text-sm text-gray-700">Status do SDK</span>
-                        <span className="text-xs text-gray-500">{sdkLoaded ? 'Carregado (Global Window)' : 'Não encontrado'}</span>
-                    </div>
-                </div>
-                <div className={`h-3 w-3 rounded-full ${deviceConnected ? 'bg-green-500 animate-pulse' : 'bg-gray-300'}`} title="Conexão USB"></div>
-            </div>
-
-            {/* Status Text */}
-            <div className="font-mono text-xs bg-gray-900 text-green-400 p-3 rounded-lg">
-                {'>'} {status}
-            </div>
-
-            {/* Settings */}
-            <div className="space-y-2">
-                <label className="text-sm font-semibold text-gray-700">Formato de Captura</label>
-                <select 
-                    className="w-full border rounded p-2 text-sm"
-                    value={format}
-                    onChange={(e) => setFormat(Number(e.target.value))}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          {/* Controls */}
+          <div className="space-y-6">
+              <div className="space-y-2">
+                  <label className="text-sm font-semibold text-gray-700">Dispositivo</label>
+                  <select 
+                    className="w-full border border-gray-300 rounded p-2"
+                    value={selectedDevice}
+                    onChange={(e) => setSelectedDevice(e.target.value)}
                     disabled={isCapturing}
-                >
-                    <option value="5">Imagem PNG (Visualização)</option>
-                    <option value="2">Template Intermediário (Hash)</option>
-                    <option value="1">RAW (Bruto)</option>
-                </select>
-            </div>
+                  >
+                      {devices.length === 0 && <option>Nenhum dispositivo</option>}
+                      {devices.map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+              </div>
 
-            {/* Actions */}
-            <div className="flex gap-3 pt-4">
-                <button 
-                    onClick={startCapture}
-                    disabled={!sdkLoaded || isCapturing}
-                    className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-lg font-bold text-white transition-all ${
-                        !sdkLoaded || isCapturing ? 'bg-gray-300 cursor-not-allowed' : 'bg-primary-600 hover:bg-primary-700 shadow-lg'
-                    }`}
-                >
-                    <Play className="h-4 w-4" /> Iniciar Leitura
-                </button>
-                <button 
-                    onClick={stopCapture}
+              <div className="space-y-2">
+                  <label className="text-sm font-semibold text-gray-700">Formato</label>
+                  <select 
+                    className="w-full border border-gray-300 rounded p-2"
+                    value={currentFormat}
+                    onChange={(e) => setCurrentFormat(Number(e.target.value))}
+                    disabled={isCapturing}
+                  >
+                      <option value={SampleFormat.PngImage}>Imagem (PNG)</option>
+                      <option value={SampleFormat.Intermediate}>Template (Hash)</option>
+                      <option value={SampleFormat.Raw}>Raw</option>
+                  </select>
+              </div>
+
+              <div className="flex gap-4">
+                  <button 
+                    onClick={handleStartCapture} 
+                    disabled={!sdkConnected || isCapturing || devices.length === 0}
+                    className="flex-1 bg-primary-600 text-white font-bold py-3 rounded hover:bg-primary-700 disabled:bg-gray-300 transition-colors"
+                  >
+                      {isCapturing ? 'Capturando...' : 'Iniciar'}
+                  </button>
+                  <button 
+                    onClick={handleStopCapture} 
                     disabled={!isCapturing}
-                    className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-lg font-bold border transition-all ${
-                        !isCapturing ? 'bg-gray-100 text-gray-400 border-gray-200' : 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100'
-                    }`}
-                >
-                    <Square className="h-4 w-4 fill-current" /> Parar
-                </button>
-            </div>
-        </div>
+                    className="flex-1 border border-red-300 text-red-600 font-bold py-3 rounded hover:bg-red-50 disabled:bg-gray-100 disabled:text-gray-400 transition-colors"
+                  >
+                      Parar
+                  </button>
+              </div>
 
-        {/* Área de Visualização */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex flex-col items-center justify-center min-h-[300px]">
-            <h3 className="text-sm font-semibold text-gray-500 mb-4 uppercase tracking-wider">Visualização da Digital</h3>
-            
-            <div className={`
-                relative w-48 h-64 border-2 border-dashed rounded-xl flex items-center justify-center bg-gray-50 overflow-hidden
-                ${isCapturing ? 'border-primary-400' : 'border-gray-300'}
-            `}>
-                {fingerprintImage ? (
-                    <img src={fingerprintImage} alt="Fingerprint" className="w-full h-full object-contain p-2" />
-                ) : (
-                    <div className="text-center text-gray-400 p-4">
-                        <Fingerprint className={`h-16 w-16 mx-auto mb-2 ${isCapturing ? 'animate-pulse text-primary-400' : ''}`} />
-                        <span className="text-xs">{isCapturing ? 'Aguardando toque...' : 'Nenhuma imagem'}</span>
-                    </div>
-                )}
-                
-                {/* Scan Line Animation */}
-                {isCapturing && !fingerprintImage && (
-                    <div className="absolute top-0 left-0 w-full h-1 bg-primary-500 shadow-[0_0_15px_rgba(168,85,247,0.5)] animate-[scan_2s_linear_infinite]"></div>
-                )}
-            </div>
+              {message && <div className="p-3 bg-gray-100 rounded text-sm text-gray-700 border border-gray-200">{message}</div>}
+              {error && <div className="p-3 bg-red-50 rounded text-sm text-red-600 border border-red-200 flex items-center"><AlertCircle className="h-4 w-4 mr-2"/>{error}</div>}
+          </div>
 
-            {quality && (
-                <div className="mt-4 px-3 py-1 bg-gray-100 rounded-full text-xs font-medium text-gray-600">
-                    Qualidade: {quality}
-                </div>
-            )}
-        </div>
-      </div>
-      
-      {/* Help Footer */}
-      <div className="text-center text-xs text-gray-400 mt-8">
-        Nota: Certifique-se que o serviço <strong>Digital Persona Lite Client</strong> esteja rodando em <code>https://127.0.0.1:52181</code>
+          {/* Visualization */}
+          <div className="flex flex-col items-center justify-center p-6 bg-gray-50 rounded-xl border-2 border-dashed border-gray-300 min-h-[300px]">
+              {capturedImage ? (
+                  <img src={capturedImage} alt="Fingerprint" className="max-w-full max-h-64 object-contain shadow-sm border bg-white" />
+              ) : rawHash ? (
+                  <div className="text-xs font-mono break-all bg-white p-4 rounded border w-full h-full overflow-auto">
+                      <strong>Dados Recebidos (Hash/Raw):</strong>
+                      <br/><br/>
+                      {rawHash}
+                  </div>
+              ) : (
+                  <div className="text-center text-gray-400">
+                      <Fingerprint className={`h-16 w-16 mx-auto mb-2 ${isCapturing ? 'animate-pulse text-primary-300' : ''}`} />
+                      <p>Visualização da Amostra</p>
+                  </div>
+              )}
+              {quality && <div className="mt-4 text-xs font-bold text-gray-600 bg-white px-2 py-1 rounded shadow-sm">{quality}</div>}
+          </div>
       </div>
     </div>
   );
