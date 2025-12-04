@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Cooperado, TipoPonto, RegistroPonto, Hospital } from '../types';
 import { StorageService } from '../services/storage';
 import { ScannerMock } from '../components/ScannerMock';
@@ -18,8 +18,21 @@ export const PontoMachine: React.FC = () => {
   const [selectedHospitalId, setSelectedHospitalId] = useState<string>('');
   const [selectedSetorId, setSelectedSetorId] = useState<string>('');
 
+  // Refs para garantir acesso ao estado mais recente dentro do callback de biometria
+  const hospitalIdRef = useRef(selectedHospitalId);
+  const setorIdRef = useRef(selectedSetorId);
+
   // User Context
   const [isHospitalUser, setIsHospitalUser] = useState(false);
+
+  // Update Refs on state change
+  useEffect(() => {
+    hospitalIdRef.current = selectedHospitalId;
+  }, [selectedHospitalId]);
+
+  useEffect(() => {
+    setorIdRef.current = selectedSetorId;
+  }, [selectedSetorId]);
 
   // Clock Ticker
   useEffect(() => {
@@ -68,11 +81,17 @@ export const PontoMachine: React.FC = () => {
   };
 
   const handleIdentification = (hash: string) => {
-    if (!selectedHospitalId) {
+    // Usar Refs para validação para evitar problemas de closure stale
+    const currentHospitalId = hospitalIdRef.current;
+    const currentSetorId = setorIdRef.current;
+
+    console.log('Tentativa de registro. Estado atual:', { currentHospitalId, currentSetorId });
+
+    if (!currentHospitalId) {
         alert("Por favor, selecione a Unidade Hospitalar.");
         return;
     }
-    if (!selectedSetorId) {
+    if (!currentSetorId) {
         alert("Por favor, selecione o Setor de atuação.");
         return;
     }
@@ -101,17 +120,29 @@ export const PontoMachine: React.FC = () => {
       setDeterminedAction(nextType);
       
       // REGISTER IMMEDIATELY - No confirmation step
-      registerPontoImmediate(found, nextType, last);
+      // Passamos os valores atuais explicitamente para garantir consistência
+      registerPontoImmediate(found, nextType, currentHospitalId, currentSetorId, last);
 
     } else {
       alert("Nenhum cooperado identificado ou cadastrado com biometria.");
     }
   };
 
-  const registerPontoImmediate = (cooperado: Cooperado, tipo: TipoPonto, lastPonto?: RegistroPonto) => {
+  const registerPontoImmediate = (
+      cooperado: Cooperado, 
+      tipo: TipoPonto, 
+      hospId: string, 
+      setId: string, 
+      lastPonto?: RegistroPonto
+  ) => {
     let codigo = Math.floor(100000 + Math.random() * 900000).toString();
     let status: 'Aberto' | 'Fechado' = 'Aberto';
     let relatedId: string | undefined;
+
+    // Recalcular string de local com base nos IDs passados (garantia de consistência)
+    const h = hospitais.find(h => h.id === hospId);
+    const s = h?.setores.find(s => s.id === setId);
+    const localString = `${h?.nome || ''} - ${s?.nome || ''}`;
 
     // Handle Entry/Exit Pairing
     if (tipo === TipoPonto.SAIDA) {
@@ -134,9 +165,9 @@ export const PontoMachine: React.FC = () => {
       cooperadoNome: cooperado.nome,
       timestamp: new Date().toISOString(),
       tipo: tipo,
-      local: getCurrentLocationString(),
-      hospitalId: selectedHospitalId,
-      setorId: selectedSetorId,
+      local: localString,
+      hospitalId: hospId,
+      setorId: setId,
       isManual: false,
       status: status,
       relatedId: relatedId
