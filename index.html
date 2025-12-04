@@ -23,12 +23,22 @@
     </script>
     
     <!-- SDK Biometria Digital Persona -->
-    <!-- Ordem Importante: Shim -> WebSdk -> Fingerprint -->
-    <script src="./js/es6-shim.js"></script>
-    <script src="./js/websdk.client.bundle.min.js"></script>
-    <script src="./js/fingerprint.sdk.min.js"></script>
+    <!-- Caminhos absolutos para garantir carregamento -->
+    <script src="/js/es6-shim.js"></script>
+    <script src="/js/websdk.client.bundle.min.js"></script>
+    <script src="/js/fingerprint.sdk.min.js"></script>
     
-    <script>window.define = null;</script>
+    <script>
+      window.define = null;
+      console.log('Scripts de Biometria injetados via HTML');
+      window.onload = function() {
+        if(window.Fingerprint) {
+            console.log('✅ SDK Fingerprint carregado no window.');
+        } else {
+            console.error('❌ SDK Fingerprint NÃO encontrado no window. Verifique a pasta public/js.');
+        }
+      };
+    </script>
     
     <script type="importmap">
 {
