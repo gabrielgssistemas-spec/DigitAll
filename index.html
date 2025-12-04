@@ -23,21 +23,30 @@
     </script>
     
     <!-- SDK Biometria Digital Persona -->
-    <!-- Caminhos absolutos para garantir carregamento -->
-    <script src="/js/es6-shim.js"></script>
-    <script src="/js/websdk.client.bundle.min.js"></script>
-    <script src="/js/fingerprint.sdk.min.js"></script>
+    <!-- Caminhos relativos (.) para garantir carregamento local ou em subpastas -->
+    <script src="./js/es6-shim.js"></script>
+    <script src="./js/websdk.client.bundle.min.js"></script>
+    <script src="./js/fingerprint.sdk.min.js"></script>
     
     <script>
       window.define = null;
       console.log('Scripts de Biometria injetados via HTML');
-      window.onload = function() {
+      
+      // Verificação robusta do carregamento
+      function checkFingerprintSdk() {
         if(window.Fingerprint) {
-            console.log('✅ SDK Fingerprint carregado no window.');
+            console.log('✅ SDK Fingerprint carregado com sucesso.');
         } else {
-            console.error('❌ SDK Fingerprint NÃO encontrado no window. Verifique a pasta public/js.');
+            console.warn('⚠️ window.Fingerprint não encontrado no onload. Verificando caminhos...');
+            // Tenta verificar se o script falhou silenciosamente ou se está atrasado
+            setTimeout(function() {
+               if(window.Fingerprint) console.log('✅ SDK Fingerprint carregado (atrasado).');
+               else console.error('❌ ERRO CRÍTICO: SDK Fingerprint não carregou. Verifique se os arquivos .js estão na pasta /public/js e se o caminho no index.html está correto.');
+            }, 2000);
         }
-      };
+      }
+      
+      window.addEventListener('load', checkFingerprintSdk);
     </script>
     
     <script type="importmap">

@@ -25,6 +25,18 @@ export const ScannerMock: React.FC<ScannerMockProps> = ({
   const [fingerImage, setFingerImage] = useState<string | null>(null);
   
   const isMounted = useRef(true);
+  
+  // Refs para manter as versões mais recentes dos callbacks e evitar Stale Closures
+  const onScanSuccessRef = useRef(onScanSuccess);
+  const onScanErrorRef = useRef(onScanError);
+
+  useEffect(() => {
+    onScanSuccessRef.current = onScanSuccess;
+  }, [onScanSuccess]);
+
+  useEffect(() => {
+    onScanErrorRef.current = onScanError;
+  }, [onScanError]);
 
   // 1. Detectar SDK Globalmente
   useEffect(() => {
@@ -87,7 +99,9 @@ export const ScannerMock: React.FC<ScannerMockProps> = ({
             
             setTimeout(() => {
               if (isMounted.current) {
-                onScanSuccess(simulatedHash);
+                // IMPORTANTE: Usar .current para acessar a função mais recente
+                // Isso evita que o listener use uma versão antiga da função onde o state do pai (ex: hospitalId) estava vazio
+                onScanSuccessRef.current(simulatedHash);
                 setStatus('IDLE');
                 setFingerImage(null); // Limpa imagem após sucesso
                 setDeviceMessage('Pronto.');
@@ -99,7 +113,7 @@ export const ScannerMock: React.FC<ScannerMockProps> = ({
           setStatus('ERROR');
           const msg = e.message || "Erro desconhecido no leitor";
           setDeviceMessage(msg);
-          if (onScanError) onScanError(msg);
+          if (onScanErrorRef.current) onScanErrorRef.current(msg);
         }
       });
 
@@ -137,7 +151,9 @@ export const ScannerMock: React.FC<ScannerMockProps> = ({
             setStatus('SUCCESS');
             setTimeout(() => {
               if (isMounted.current) {
-                onScanSuccess(`sim_hash_${Math.random().toString(36).substring(7)}`);
+                // No simulador, o efeito roda a cada atualização de onScanSuccess (via deps),
+                // mas usar ref mantém a consistência com o modo Device
+                onScanSuccessRef.current(`sim_hash_${Math.random().toString(36).substring(7)}`);
                 setStatus('IDLE');
                 setProgress(0);
               }
@@ -149,7 +165,7 @@ export const ScannerMock: React.FC<ScannerMockProps> = ({
       }, 50);
     }
     return () => clearInterval(interval);
-  }, [status, mode, onScanSuccess]);
+  }, [status, mode]); // Removido onScanSuccess das deps pois usamos ref
 
   return (
     <div className="flex flex-col items-center justify-center p-6 bg-white rounded-xl shadow-lg border border-gray-200 max-w-sm mx-auto transition-all">
